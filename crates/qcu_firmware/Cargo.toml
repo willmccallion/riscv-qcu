@@ -1,0 +1,12 @@
+[package]
+name = "qcu_firmware"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+qcu_core = { path = "../qcu_core" }
+riscv = "0.10"
+panic-halt = "0.2"
+
+[features]
+use_fpga_mmio = []

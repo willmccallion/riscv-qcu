@@ -1,0 +1,5 @@
+[target.riscv64gc-unknown-none-elf]
+rustflags = [
+    "-C", "code-model=medium",
+    "-C", "force-unwind-tables=no",
+]

@@ -1,0 +1,22 @@
+[workspace]
+members = [
+    "crates/qcu_core",
+    "crates/qcu_io",
+    "crates/qcu_host",
+    "crates/qcu_firmware", 
+    "crates/qcu_hw"
+]
+
+resolver = "2"
+
+default-members = [
+    "crates/qcu_core",
+    "crates/qcu_io",
+    "crates/qcu_host",
+]
+
+[profile.release]
+panic = "abort"
+lto = "fat"
+opt-level = 3
+codegen-units = 1

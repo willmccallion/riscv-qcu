@@ -1,0 +1,10 @@
+[package]
+name = "qcu_io"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+qcu_core = { path = "../qcu_core" }
+nom = "7.1"
+bitvec = "1.0"
+anyhow = "1.0"
