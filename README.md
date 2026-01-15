@@ -25,11 +25,20 @@ Specific decoder subroutines are offloaded to a SystemVerilog hardware model. Th
 
 ## Performance
 
-Benchmarks were conducted on a QEMU `virt` machine simulating a 1GHz RISC-V processor.
+Benchmarks were conducted in two environments:
+1.  **Host Simulation:** x86_64 workstation (Algorithm verification).
+2.  **Target Simulation:** QEMU `virt` machine (RV64IMAC, 4 Cores).
 
-*   **Throughput:** ~194,000 shots/second (Distance=5)
-*   **Average Latency:** 3.16 µs
-*   **Jitter:** < 200 ns
+### RISC-V Firmware (QEMU)
+*   **Peak Throughput:** ~55,000 shots/s (3 Worker Cores, Saturated)
+*   **Deterministic Latency:** ~580 Clock Cycles (Zero-Load)
+    *   *@ 100 MHz (FPGA):* ~5.8 µs
+    *   *@ 1 GHz (ASIC):* ~0.58 µs
+*   **Jitter:** < 50 Cycles
+
+### Host Simulation (x86)
+*   **Single-Thread Throughput:** ~40,000 shots/s
+*   **Service Time:** ~23 µs (d=5, p=0.005)
 
 ## Usage
 
