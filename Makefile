@@ -1,4 +1,4 @@
-.PHONY: all kernel stream test clean gen
+.PHONY: all kernel stream test clean gen hil
 
 # Default target
 all: kernel
@@ -11,9 +11,9 @@ kernel:
 stream:
 	@./scripts/run.py stream --freq 40000
 
-# Run Hardware Verification Tests
-test:
-	@cargo test -p qcu_hw
+# Run Hardware-in-the-Loop Demo (TCP Bridge)
+hil:
+	@./scripts/run.py hil
 
 # Generate fresh data
 gen:

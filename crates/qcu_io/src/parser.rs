@@ -1,10 +1,30 @@
+//! Parser for decoding graph description files.
+//!
+//! Provides functions for parsing Stim .dem (Detector Error Model) files,
+//! which describe the error model topology for stabilizer codes. The parser
+//! extracts edges between detector nodes and constructs a DecodingGraph structure
+//! for use by the decoder.
+
 use anyhow::{Context, Result};
 use qcu_core::graph::DecodingGraph;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-/// Loads a Stim .dem file into a DecodingGraph.
+/// Loads a Stim .dem file and constructs a DecodingGraph.
+///
+/// Parses the DEM file format, which specifies error probabilities and detector
+/// node connections. Each "error" line defines an edge in the decoding graph
+/// with an associated error probability. The probability is converted to a
+/// weight using negative log probability for use in weighted decoding algorithms.
+///
+/// # Arguments
+///
+/// * `path` - Path to the .dem file
+///
+/// # Returns
+///
+/// A DecodingGraph containing all edges from the file, or an error if parsing fails.
 #[allow(clippy::collapsible_if)]
 pub fn load_dem_file<P: AsRef<Path>>(path: P) -> Result<DecodingGraph> {
     let file = File::open(path).context("Failed to open .dem file")?;

@@ -1,8 +1,35 @@
+//! Test data generator for quantum error correction benchmarks.
+//!
+//! Generates phenomenological noise model data by creating surface code
+//! topologies and simulating error propagation. Outputs decoding graphs
+//! (.dem files) and syndrome measurement data (.b8 files) for use in
+//! performance benchmarks and correctness testing.
+
 use anyhow::Result;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
-/// Generates a Phenomenological Noise Model.
+/// Generates phenomenological noise model test data.
+///
+/// Creates a surface code decoding graph and generates syndrome measurement
+/// data with configurable error rates. The surface code is represented as
+/// a grid of detector nodes connected by edges representing possible error
+/// locations. Errors are applied probabilistically, and syndrome bits are
+/// recorded when detectors fire. Optionally injects uncorrectable monopole
+/// errors to test decoder robustness.
+///
+/// # Arguments
+///
+/// * `dem_path` - Output path for the decoding graph (.dem file)
+/// * `b8_path` - Output path for the syndrome data (.b8 file)
+/// * `size` - Surface code size (creates size x size grid)
+/// * `num_shots` - Number of measurement shots to generate
+/// * `p` - Physical error rate per edge (probability of error occurrence)
+/// * `inject_failures` - If true, inject uncorrectable monopole errors in ~10% of shots
+///
+/// # Returns
+///
+/// Ok(()) on success, or an error if file I/O fails.
 pub fn generate_phenomenological_data(
     dem_path: &str,
     b8_path: &str,
@@ -20,7 +47,6 @@ pub fn generate_phenomenological_data(
     let mut dem_file = BufWriter::new(File::create(dem_path)?);
     let mut edges = Vec::new();
 
-    // Horizontal edges
     for r in 0..size {
         for c in 0..size - 1 {
             let u = r * size + c;
@@ -29,7 +55,6 @@ pub fn generate_phenomenological_data(
             edges.push((u, v));
         }
     }
-    // Vertical edges
     for r in 0..size - 1 {
         for c in 0..size {
             let u = r * size + c;
@@ -43,7 +68,6 @@ pub fn generate_phenomenological_data(
     println!("Simulating {} shots...", num_shots);
     let mut b8_file = BufWriter::new(File::create(b8_path)?);
 
-    // Simple Xorshift RNG
     let mut state: u64 = 12345;
     let mut rng_float = move || {
         state ^= state >> 12;
@@ -60,7 +84,6 @@ pub fn generate_phenomenological_data(
     for _ in 0..num_shots {
         detector_state.fill(false);
 
-        // Apply valid physical errors (Pairs)
         for &(u, v) in &edges {
             if rng_float() < p {
                 detector_state[u] = !detector_state[u];
@@ -68,12 +91,10 @@ pub fn generate_phenomenological_data(
             }
         }
 
-        // Inject FATAL error (Monopole) if requested
         if inject_failures && rng_float() < 0.10 {
             detector_state[0] = !detector_state[0];
         }
 
-        // Pack bits
         for chunk in detector_state.chunks(8) {
             let mut byte = 0u8;
             for (i, &triggered) in chunk.iter().enumerate() {

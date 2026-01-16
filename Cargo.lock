@@ -294,14 +294,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "qcu_common"
+version = "0.1.0"
+
+[[package]]
 name = "qcu_core"
 version = "0.1.0"
+dependencies = [
+ "qcu_common",
+]
 
 [[package]]
 name = "qcu_firmware"
 version = "0.1.0"
 dependencies = [
  "panic-halt",
+ "qcu_common",
  "qcu_core",
  "riscv",
 ]

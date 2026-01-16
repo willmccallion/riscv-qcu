@@ -1,3 +1,10 @@
+//! Streaming decoder simulation with real-time throughput monitoring.
+//!
+//! Implements a producer-consumer architecture where syndrome data is generated
+//! or loaded at a specified frequency and processed through the decoder in
+//! parallel. Monitors queue depth, latency, and throughput to evaluate decoder
+//! performance under continuous load conditions.
+
 use crate::stats::LatencyStats;
 use anyhow::Result;
 use qcu_core::decoder::UnionFindDecoder;
@@ -8,6 +15,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
+/// Packet containing syndrome data for one decoding task.
+///
+/// Encapsulates detector indices that fired in a single measurement shot.
+/// The syndrome buffer is limited to 64 indices to keep packet size small
+/// for efficient queue transmission.
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct TaskPacket {
@@ -16,6 +28,11 @@ pub struct TaskPacket {
 }
 
 impl Default for TaskPacket {
+    /// Creates a default task packet with empty syndrome buffer.
+    ///
+    /// Initializes syndrome_len to 0 and zeroes the syndrome_buffer array.
+    /// Used as a starting point for constructing packets before filling in
+    /// detector indices.
     fn default() -> Self {
         Self {
             syndrome_len: 0,
@@ -24,6 +41,11 @@ impl Default for TaskPacket {
     }
 }
 
+/// Statistics tracking for streaming decoder performance.
+///
+/// Maintains atomic counters for monitoring throughput, dropped packets,
+/// and latency in the producer-consumer decoding pipeline. All fields are
+/// shared between threads via Arc for concurrent access.
 pub struct StreamStats {
     pub processed: Arc<AtomicU64>,
     pub generated: Arc<AtomicU64>,
@@ -31,8 +53,35 @@ pub struct StreamStats {
     pub latency_us: Arc<AtomicU64>,
 }
 
+/// Maximum number of nodes supported by the streaming decoder.
+///
+/// This limit is enforced at compile time via the decoder's const generic
+/// parameter. Must be large enough to accommodate the largest decoding
+/// graph that will be processed in streaming mode. The value of 4096
+/// supports medium-sized surface codes and other quantum error correction
+/// codes.
 const MAX_NODES: usize = 4096;
 
+/// Runs a real-time streaming QEC decoder benchmark.
+///
+/// Spawns separate producer and consumer threads connected via a ring buffer.
+/// The producer generates syndrome packets at the specified frequency, while
+/// the consumer decodes them and records latency statistics. Runs for the
+/// specified duration, printing throughput and latency metrics every second.
+/// If a .b8 file path is provided, loads pre-generated syndrome patterns;
+/// otherwise uses a single empty pattern for continuous testing.
+///
+/// # Arguments
+///
+/// * `dem_path` - Path to the detector error model (.dem) file
+/// * `b8_path` - Optional path to binary measurement data (.b8) file
+/// * `freq` - Target frequency in Hz for syndrome packet generation
+/// * `duration_secs` - Duration to run the benchmark in seconds
+/// * `user_detectors` - Optional override for number of detectors
+///
+/// # Returns
+///
+/// Ok(()) on success, or an error if file loading or thread operations fail.
 pub fn run_stream(
     dem_path: &str,
     b8_path: Option<String>,

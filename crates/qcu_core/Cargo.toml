@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+qcu_common = { path = "../qcu_common" }
 
 [features]
 hw_accel = []

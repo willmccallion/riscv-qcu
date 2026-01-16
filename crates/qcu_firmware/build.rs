@@ -1,8 +1,21 @@
+/// Build script for qcu_firmware crate.
+///
+/// Copies the memory layout linker script and generates embedded benchmark
+/// data from .b8 and .dem files. Converts binary measurement data into a
+/// Rust array of u64 words for efficient firmware access. If benchmark data
+/// files are missing, generates empty dummy data to allow compilation.
 use std::env;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+/// Build script entry point for firmware compilation.
+///
+/// Configures the linker with the memory layout script and generates embedded
+/// benchmark data from .b8 and .dem files. The benchmark data is converted
+/// into a Rust array of u64 words for efficient firmware access. If benchmark
+/// data files are missing, generates empty dummy data to allow compilation
+/// to proceed without errors.
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
@@ -20,7 +33,17 @@ fn main() {
     println!("cargo:rerun-if-changed={}", b8_path.display());
     println!("cargo:rerun-if-changed={}", dem_path.display());
 
+    // Number of 64-bit words required to store syndrome data for one shot.
+    //
+    // Each word can represent 64 detector bits, so this constant determines
+    // the maximum number of detectors supported per quantum measurement shot.
+    // The value of 160 words supports up to 10,240 detectors per shot.
     const WORDS_PER_SHOT: usize = 160;
+
+    // Size of a syndrome packet in bytes.
+    //
+    // Calculated as WORDS_PER_SHOT * 8 (bytes per u64 word). Used to allocate
+    // buffers for reading and processing syndrome data from the .b8 file.
     const PACKET_SIZE: usize = WORDS_PER_SHOT * 8;
 
     if !b8_path.exists() || !dem_path.exists() {

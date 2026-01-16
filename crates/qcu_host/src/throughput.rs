@@ -1,12 +1,38 @@
+//! Throughput benchmark for decoder performance evaluation.
+//!
+//! Measures the time required to decode a batch of syndrome measurements
+//! using parallel processing. Reports throughput in shots per second and
+//! validates that all shots are successfully decoded. Used for performance
+//! regression testing and optimization validation.
+
 use anyhow::Result;
 use qcu_core::decoder::UnionFindDecoder;
 use qcu_io::{loader, parser};
 use rayon::prelude::*;
 use std::time::Instant;
 
-// Large enough for benchmarks
+/// Maximum number of nodes supported by the benchmark decoder.
+///
+/// Large enough to accommodate typical surface code sizes used in benchmarks.
+/// The decoder is instantiated with this capacity to handle graphs up to
+/// this size.
 const MAX_NODES: usize = 4096;
 
+/// Runs a throughput benchmark on decoding performance.
+///
+/// Loads a decoding graph and syndrome data, then processes all shots in
+/// parallel using Rayon. Measures the total time and computes throughput.
+/// Reports results including total time, shots per second, and success rate.
+///
+/// # Arguments
+///
+/// * `dem_path` - Path to the decoding graph (.dem file)
+/// * `b8_path` - Path to the syndrome data (.b8 file)
+/// * `user_detectors` - Optional override for detector count (defaults to graph size)
+///
+/// # Returns
+///
+/// Ok(()) on success, or an error if file loading or decoding fails.
 pub fn run_benchmark(dem_path: &str, b8_path: &str, user_detectors: Option<usize>) -> Result<()> {
     println!("Loading Graph from {}...", dem_path);
     let start_load = Instant::now();
@@ -31,7 +57,6 @@ pub fn run_benchmark(dem_path: &str, b8_path: &str, user_detectors: Option<usize
     let solved_count: usize = shots
         .par_iter()
         .map(|shot| {
-            // Instantiate static decoder with MAX_NODES
             let mut local_decoder = UnionFindDecoder::<MAX_NODES>::new();
             let mut local_results = Vec::with_capacity(128);
 

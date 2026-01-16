@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 qcu_core = { path = "../qcu_core" }
+qcu_common = { path = "../qcu_common" }
 riscv = "0.10"
 panic-halt = "0.2"
 
