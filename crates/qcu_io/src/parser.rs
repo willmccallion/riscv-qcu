@@ -71,5 +71,7 @@ pub fn load_dem_file<P: AsRef<Path>>(path: P) -> Result<DecodingGraph> {
         }
     }
 
+    graph.build_adjacency();
+
     Ok(graph)
 }

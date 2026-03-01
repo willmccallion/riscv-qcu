@@ -7,6 +7,7 @@
 
 use crate::QecError;
 use alloc::alloc::Global;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::alloc::Allocator;
 
@@ -37,7 +38,8 @@ pub struct Edge {
 /// Stores the connectivity structure of detector nodes and error locations
 /// for a stabilizer code. The graph is built from error model descriptions
 /// (e.g., .dem files) and used by decoders to find correction paths. Edges
-/// are stored as (u, v) pairs for efficient iteration during decoding.
+/// are stored both as a flat (u, v) list for compatibility and as a CSR
+/// adjacency list for O(degree) neighbor iteration during decoding.
 ///
 /// # Type Parameters
 ///
@@ -47,10 +49,23 @@ pub struct DecodingGraph<A: Allocator = Global> {
     /// Flat list of graph edges as (u, v) node pairs.
     ///
     /// Stored as u32 pairs to reduce memory footprint compared to usize pairs
-    /// on 64-bit systems, while still supporting graphs with up to 4 billion
-    /// nodes. The decoder iterates over this list to find edges connecting
-    /// active syndrome clusters.
+    /// on 64-bit systems. Retained for compatibility with existing code paths
+    /// and as the source of truth when building the adjacency list.
     pub fast_edges: Vec<(u32, u32), A>,
+
+    /// CSR adjacency offsets into `adj_targets`.
+    ///
+    /// `adj_offsets[i]..adj_offsets[i+1]` is the range of `adj_targets` that
+    /// lists all neighbours of node i. Length is `max_node_id + 1`. Built once
+    /// by `build_adjacency` after all edges have been added.
+    pub adj_offsets: Vec<u32>,
+
+    /// Packed neighbour list in CSR order.
+    ///
+    /// Contains the neighbour node indices for every node, laid out contiguously
+    /// in the order defined by `adj_offsets`. Allows O(degree) iteration over
+    /// the neighbours of any node without scanning the full edge list.
+    pub adj_targets: Vec<u32>,
 
     /// Estimated capacity for node indices.
     ///
@@ -80,6 +95,42 @@ impl DecodingGraph<Global> {
     pub fn new(capacity: usize) -> Self {
         Self::new_in(capacity, Global)
     }
+
+    /// Builds the CSR adjacency list from the current edge set.
+    ///
+    /// Must be called once after all edges have been added via `add_edge`.
+    /// Constructs `adj_offsets` and `adj_targets` for O(degree) neighbour
+    /// access during decoding. Calling this again after further `add_edge`
+    /// calls will rebuild correctly.
+    pub fn build_adjacency(&mut self) {
+        let n = self.max_node_id;
+        let mut degree = vec![0u32; n];
+
+        for &(u, v) in &self.fast_edges {
+            degree[u as usize] += 1;
+            degree[v as usize] += 1;
+        }
+
+        let mut offsets = vec![0u32; n + 1];
+        for i in 0..n {
+            offsets[i + 1] = offsets[i] + degree[i];
+        }
+
+        let total = offsets[n] as usize;
+        let mut targets = vec![0u32; total];
+        let mut pos = offsets[..n].to_vec();
+
+        for &(u, v) in &self.fast_edges {
+            targets[pos[u as usize] as usize] = v;
+            pos[u as usize] += 1;
+            targets[pos[v as usize] as usize] = u;
+            pos[v as usize] += 1;
+        }
+
+        self.adj_offsets = offsets;
+        self.adj_targets = targets;
+    }
+
 }
 
 impl<A: Allocator> DecodingGraph<A> {
@@ -96,6 +147,8 @@ impl<A: Allocator> DecodingGraph<A> {
     pub fn new_in(capacity: usize, alloc: A) -> Self {
         Self {
             fast_edges: Vec::with_capacity_in(capacity * 4, alloc),
+            adj_offsets: Vec::new(),
+            adj_targets: Vec::new(),
             num_nodes_capacity: capacity,
             max_node_id: 0,
         }
@@ -156,5 +209,19 @@ impl<A: Allocator> DecodingGraph<A> {
     /// The number of nodes (max_node_id), representing the graph size.
     pub fn num_nodes(&self) -> usize {
         self.max_node_id
+    }
+
+    /// Returns the neighbour indices of node `i` as a slice.
+    ///
+    /// Requires `build_adjacency` to have been called first. Returns an empty
+    /// slice for nodes with no edges or if the adjacency list has not been built.
+    #[inline(always)]
+    pub fn neighbors(&self, i: usize) -> &[u32] {
+        if self.adj_offsets.len() <= i + 1 {
+            return &[];
+        }
+        let start = self.adj_offsets[i] as usize;
+        let end = self.adj_offsets[i + 1] as usize;
+        &self.adj_targets[start..end]
     }
 }

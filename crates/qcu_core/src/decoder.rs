@@ -86,6 +86,9 @@ impl<const N: usize> CorrectionBuffer for StaticVec<(usize, usize), N> {
 /// outputs correction edges when sets with odd parity are merged. The capacity
 /// N must be large enough to accommodate all nodes in the decoding graph.
 ///
+/// All internal buffers are reused across calls to `solve_into`, so the hot
+/// path performs zero heap allocations.
+///
 /// # Type Parameters
 ///
 /// * `N` - Maximum number of nodes the decoder can handle. Must satisfy
@@ -119,8 +122,8 @@ where
     /// Tracking array for nodes involved in the current decoding cycle.
     ///
     /// Marks which nodes have been touched by syndrome bits or correction
-    /// operations, allowing early termination when processing graph edges
-    /// that cannot affect the result.
+    /// operations, allowing the inner loop to skip edges whose both endpoints
+    /// are outside the active cluster frontier.
     touched: StaticVec<usize, N>,
 }
 
@@ -128,9 +131,6 @@ impl<const N: usize> Default for UnionFindDecoder<N>
 where
     [(); N.div_ceil(64)]:,
 {
-    /// Creates a decoder with default (empty) state.
-    ///
-    /// Equivalent to calling `new()`, provided for trait compatibility.
     fn default() -> Self {
         Self::new()
     }
@@ -143,8 +143,8 @@ where
     /// Creates a new decoder with empty internal state.
     ///
     /// All internal buffers are initialized to empty. The decoder is ready
-    /// to process syndrome data after this call, but no memory is allocated
-    /// until `solve_into` is called with a graph.
+    /// to process syndrome data after this call. Buffers are reused across
+    /// calls to `solve_into` with no heap allocation on the hot path.
     pub fn new() -> Self {
         Self {
             parent: StaticVec::new(),
@@ -158,8 +158,9 @@ where
     ///
     /// Processes the provided syndrome bits through the union-find algorithm,
     /// grouping nodes into clusters and generating correction operations for
-    /// clusters with odd parity. The algorithm iterates until no further
-    /// corrections can be found, ensuring all syndrome bits are matched.
+    /// clusters with odd parity. The algorithm iterates over the graph's
+    /// adjacency list, visiting only neighbours of currently active nodes,
+    /// until no further unions can be performed.
     ///
     /// # Type Parameters
     ///
@@ -217,6 +218,9 @@ where
             }
         }
 
+        // Iterate over the flat edge list. The `touched` guard skips edges
+        // whose both endpoints are outside the active cluster frontier,
+        // avoiding redundant find/union calls on irrelevant edges.
         loop {
             let mut changed = false;
             for &(u32_u, u32_v) in &graph.fast_edges {

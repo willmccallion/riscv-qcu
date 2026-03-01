@@ -132,11 +132,12 @@ pub fn run_stream(
         let mut decoder = UnionFindDecoder::<MAX_NODES>::new();
         let mut lat_stats = LatencyStats::new();
         let mut results = Vec::with_capacity(1024);
+        let mut indices = Vec::with_capacity(64);
 
         while r_cons.load(Ordering::Relaxed) {
             if let Some(packet) = rb_cons.pop() {
                 let len = packet.syndrome_len as usize;
-                let mut indices = Vec::with_capacity(len);
+                indices.clear();
                 for i in 0..len {
                     indices.push(packet.syndrome_buffer[i] as usize);
                 }
