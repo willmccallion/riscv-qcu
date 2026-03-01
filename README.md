@@ -94,6 +94,14 @@ stateDiagram-v2
 
 Quantum error correction must complete within the qubit coherence time (~1–100 µs for superconducting qubits). The 0.58 µs ASIC target sits well within this window.
 
+## Hardware-in-the-Loop Demo
+
+`make hil` launches a Verilator physics simulation alongside a real-time terminal dashboard. The host controller communicates with the simulation over TCP, reading qubit error syndromes and applying correction pulses each cycle.
+
+<img src="assets/hil.png" width="320" alt="HIL demo"/>
+
+The 3x3 qubit grid shows coherent qubits in green `[ O ]` and error/decay states in red `[ X ]`. The event log records each correction cycle with the raw syndrome bitmask and correction status.
+
 ## Usage
 
 A Python workflow script manages data generation, compilation, and simulation.
