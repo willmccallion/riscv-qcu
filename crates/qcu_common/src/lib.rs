@@ -6,12 +6,12 @@
 
 #![no_std]
 
-//! Memory-mapped I/O address space definitions for the system-on-chip.
-//!
-//! Defines the physical address layout for peripherals including interrupt
-//! controllers, quantum processing accelerators, and memory regions. These
-//! addresses must match the hardware memory map and are used by both firmware
-//! and host-side drivers for MMIO access.
+// Memory-mapped I/O address space definitions for the system-on-chip.
+//
+// Defines the physical address layout for peripherals including interrupt
+// controllers, quantum processing accelerators, and memory regions. These
+// addresses must match the hardware memory map and are used by both firmware
+// and host-side drivers for MMIO access.
 pub mod mmio {
     /// Base address of the CLINT (Core Local Interruptor) in QEMU 'virt' machine.
     ///
@@ -34,13 +34,6 @@ pub mod mmio {
     /// 10 MHz in QEMU). Used for timestamping and scheduling periodic events
     /// in the firmware scheduler.
     pub const MTIME_ADDR: usize = CLINT_BASE + 0xBFF8;
-
-    /// Base address for the Physics Engine (Future Hamiltonian Emulator).
-    ///
-    /// Reserved address space for a future quantum physics simulation engine
-    /// that will model Hamiltonian evolution and noise channels. Currently
-    /// unused but defined to prevent address conflicts.
-    pub const PHYSICS_ENGINE_BASE: usize = 0x4000_0000;
 
     /// Base address for the Union-Find Decoder Accelerator.
     ///

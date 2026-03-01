@@ -1,77 +1,134 @@
 # RISC-V Quantum Control Unit
 
-This project implements a bare-metal firmware stack and hardware architecture designed for real-time Quantum Error Correction (QEC). It targets RISC-V soft-cores and focuses on deterministic execution, low-latency decoding, and hardware-software co-design.
+A bare-metal firmware stack and hardware architecture for real-time Quantum Error Correction (QEC). Targets RISC-V soft-cores with a focus on deterministic execution, low-latency decoding, and hardware-software co-design.
 
-The system decodes Surface Code errors using a custom instruction set, a zero-allocation Union-Find decoder, and a SystemVerilog hardware accelerator model.
+Decodes Surface Code errors using a zero-allocation Union-Find decoder, a custom ISA, and a SystemVerilog hardware accelerator verified via Verilator co-simulation.
 
 ## System Architecture
 
-The architecture is divided into three logical layers:
+```mermaid
+flowchart TD
+    subgraph Host["Host / Stim"]
+        STIM["Stim circuit generator<br/>Surface Code d=5 · p=0.005"]
+        DEM["Detector Error Model<br/>.dem + .b8 embedded in firmware"]
+    end
 
-### Core Logic
-The core library contains the primary control logic and defines a custom bytecode (ISA) for quantum operations, including gate application, measurement, and decoding. The decoder implements the Union-Find algorithm with path compression and path halving optimizations. To ensure deterministic timing, the system uses a custom Bump Allocator backed by static memory regions, ensuring constant-time allocation and eliminating heap fragmentation.
+    subgraph FW["RISC-V Firmware (no_std · RV64IMAC · QEMU)"]
+        H0["Hart 0 — Primary<br/>load graph · push SyndromePackets @ 10 kHz"]
+        SPMC["SPMC Ring Buffer<br/>512-slot lock-free queue"]
+        HN["Hart 1-3 — Workers<br/>unpack syndromes · run decoder · record stats"]
+        STATS["AtomicU64 counters<br/>throughput · min/avg/max latency"]
+    end
 
-### Firmware
-The runtime environment is a `no_std` kernel designed for RV64IMAC architectures. It boots on bare metal (simulated via QEMU or FPGA) and manages system resources. Concurrency is handled through lock-free Single-Producer Single-Consumer (SPSC) ring buffers, which manage data flow between the I/O handling thread and the decoding thread without locking overhead.
+    subgraph HW["Hardware Accelerator (SystemVerilog)"]
+        UF["union_find.sv<br/>path-compression state machine"]
+        VER["Verilator harness<br/>Rust FFI · cycle-accurate co-sim"]
+    end
 
-### Hardware Acceleration
-Specific decoder subroutines are offloaded to a SystemVerilog hardware model. The accelerator optimizes the `Find` operation of the Union-Find algorithm. The project includes a Verilator-based simulation harness, allowing Rust unit tests to drive the Verilog logic cycle-by-cycle for verification of the hardware design against the software reference.
+    STIM --> DEM --> H0
+    H0 --> SPMC --> HN --> STATS
+    UF <-->|"MMIO / custom RV insn (.insn r 0x0B)"| HN
+    UF --> VER
+```
+
+The architecture is divided into three layers:
+
+### Core Logic (`qcu_core`)
+Implements the Union-Find decoder with path compression and parity tracking, the decoding graph, Pauli frame, and a custom bump allocator backed by static memory. All hot-path allocations are zero-cost at decode time.
+
+### Firmware (`qcu_firmware`)
+A `no_std` kernel for RV64IMAC. Hart 0 loads the decoding graph from an embedded DEM file and pushes syndrome packets into a lock-free SPMC ring buffer at ~10 kHz. Worker harts pop packets, unpack syndrome bits, and run the decoder in parallel. Latency statistics are tracked with atomics and printed every 10M cycles.
+
+### Hardware Acceleration (`qcu_hw`)
+The `Find` operation is partially offloaded to `union_find.sv` via a custom RISC-V instruction. A Verilator-based co-simulation harness wraps the generated C++ model via Rust FFI for cycle-accurate verification against the software reference.
+
+## Decoder Pipeline
+
+```mermaid
+flowchart LR
+    SYN["Syndrome bits<br/>bit-packed u64 words"]
+    UNPACK["Unpack detector indices<br/>O(popcount) — set bits only"]
+    GRAPH["Decoding graph<br/>edges as Vec&lt;(u32, u32)&gt;"]
+    DSU["DSU · path-halving find<br/>parity-aware union<br/>XOR parity on merge"]
+    PAULI["Pauli frame update<br/>X/Z bit arrays"]
+    OUT["Correction output<br/>zero-allocation static buffer"]
+
+    SYN --> UNPACK --> GRAPH --> DSU --> PAULI --> OUT
+```
+
+Each DSU cluster carries a parity bit (XOR of edge parities along the path to root). A cluster with odd parity has an uncorrected error — the correction set is built from all odd-parity cluster roots.
+
+## Hardware State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> READ_REQ : start asserted
+    READ_REQ --> READ_WAIT : mem_rd_en issued
+    READ_WAIT --> CHECK : mem_ready
+    CHECK --> READ_REQ : parent != curr_node (follow chain)
+    CHECK --> DONE : parent == curr_node (root found)
+    DONE --> READ_REQ : start asserted (next query)
+    DONE --> IDLE : start deasserted
+```
+
+`union_find.sv` walks the parent array through a memory interface, returning the root node in hardware. The state machine exits when it finds a self-referential parent (the root), implementing path traversal in O(depth) clock cycles.
 
 ## Technical Implementation
 
-*   **Deterministic Memory Management:** The system avoids dynamic memory allocation during the decoding loop. All graph nodes, scratch buffers, and state vectors are pre-allocated in a contiguous memory arena to ensure cache locality and prevent latency spikes.
-*   **Bit-Packed State Tracking:** Syndrome data and Pauli frames are managed using bit-packed state machines to reduce memory bandwidth requirements.
-*   **Hardware-Software Co-Simulation:** The build system integrates Verilator, compiling SystemVerilog modules into C++ models. These are linked into the Rust test suite via FFI, enabling cycle-accurate verification within the software workflow.
+- **Zero-allocation decode loop:** All graph nodes, scratch buffers, and DSU state are pre-allocated at boot via a bump allocator (`0x8400_0000`, 4 MB). The hot path never calls `malloc`.
+- **Bit-packed syndrome data:** Syndrome bits are packed into `u64` words; the decoder unpacks only set bits (`O(popcount)`), minimising work on sparse error patterns.
+- **Lock-free concurrency:** The SPMC queue uses atomic head/tail pointers — no mutexes on any critical path.
+- **Verilator co-sim:** `build.rs` compiles `union_find.sv` via Verilator into a C++ model linked via FFI for cycle-accurate hardware verification.
 
 ## Performance
 
-Benchmarks were conducted in two environments:
-1.  **Host Simulation:** x86_64 workstation (Algorithm verification).
-2.  **Target Simulation:** QEMU `virt` machine (RV64IMAC, 4 Cores).
+| Environment | Metric | Value |
+|---|---|---|
+| RISC-V QEMU (4 harts) | Peak throughput | ~55,000 shots/s |
+| RISC-V QEMU | Zero-load latency | ~580 cycles |
+| @ 100 MHz FPGA | Latency | ~5.8 µs |
+| @ 1 GHz ASIC | Latency | ~0.58 µs |
+| RISC-V QEMU | Jitter | < 50 cycles |
+| x86_64 host | Single-thread throughput | ~40,000 shots/s |
 
-### RISC-V Firmware (QEMU)
-*   **Peak Throughput:** ~55,000 shots/s (3 Worker Cores, Saturated)
-*   **Deterministic Latency:** ~580 Clock Cycles (Zero-Load)
-    *   *@ 100 MHz (FPGA):* ~5.8 µs
-    *   *@ 1 GHz (ASIC):* ~0.58 µs
-*   **Jitter:** < 50 Cycles
-
-### Host Simulation (x86)
-*   **Single-Thread Throughput:** ~40,000 shots/s
-*   **Service Time:** ~23 µs (d=5, p=0.005)
+Quantum error correction must complete within the qubit coherence time (~1–100 µs for superconducting qubits). The 0.58 µs ASIC target sits well within this window.
 
 ## Usage
 
-A Python workflow script is provided to manage data generation, compilation, and simulation.
+A Python workflow script manages data generation, compilation, and simulation.
 
-**Data Generation**
-Generate a Surface Code circuit (Distance=5) with 10,000 shots using Stim. This embeds the synthetic syndrome data directly into the firmware source.
+**Generate syndrome data**
 ```bash
 ./scripts/run.py gen --size 5 --shots 10000
 ```
 
-**Host Simulation**
-Run the decoder logic on the host machine to establish baseline throughput and latency metrics.
+**Host decoder benchmark**
 ```bash
 ./scripts/run.py stream --freq 100000
 ```
 
-**Firmware Boot**
-Compile the firmware for the `riscv64gc-unknown-none-elf` target and boot the kernel in QEMU.
+**Boot firmware on RISC-V QEMU (4-core SMP)**
 ```bash
 ./scripts/run.py kernel
 ```
 
-**Hardware Verification**
-Compile the SystemVerilog accelerator into a C++ model and run the Rust integration tests.
+**Build hardware co-simulation model** (requires Verilator)
 ```bash
-cargo test -p qcu_hw
+cargo build -p qcu_hw
+```
+
+Firmware prints throughput and latency statistics every 10M cycles:
+```
+T=  1s | Rate:  55213/s | Lat:  561/ 583/ 614 | Q:    3
 ```
 
 ## Dependencies
 
-*   Rust Nightly Toolchain
-*   QEMU (`qemu-system-riscv64`)
-*   Verilator
-*   Python 3 (with `stim` library)
-*   RISC-V GCC Toolchain
+| Tool | Purpose |
+|---|---|
+| Rust nightly | `allocator_api`, `generic_const_exprs` |
+| `qemu-system-riscv64` | Firmware simulation |
+| Verilator | SystemVerilog co-simulation |
+| Python 3 + `stim` | Surface Code circuit generation |
+| RISC-V GCC | Firmware cross-compilation |

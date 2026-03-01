@@ -5,13 +5,13 @@
 //! a Verilator simulation via FFI bindings to test hardware acceleration
 //! of the decoder's critical path operations.
 
-/// Foreign function interface to hardware simulation functions.
-///
-/// These functions are implemented in C++ and linked with the Verilator
-/// simulation. They provide low-level control over the hardware accelerator's
-/// state machine and data paths. All functions are marked unsafe because
-/// they interact with external C++ code that may have different safety
-/// guarantees than Rust.
+// Foreign function interface to hardware simulation functions.
+//
+// These functions are implemented in C++ and linked with the Verilator
+// simulation. They provide low-level control over the hardware accelerator's
+// state machine and data paths. All functions are marked unsafe because
+// they interact with external C++ code that may have different safety
+// guarantees than Rust.
 unsafe extern "C" {
     /// Initializes the hardware accelerator with parent array data.
     ///
